@@ -1,0 +1,22 @@
+# Maven / Gradle
+target/
+build/
+.m2/
+
+# Compiled files
+*.class
+
+# IntelliJ
+.idea/
+*.iml
+
+# Logs
+*.log
+
+# macOS
+.DS_Store
+
+# Local secrets — never commit real values
+k8s/**/secret.yaml
+.env
+.env.*
