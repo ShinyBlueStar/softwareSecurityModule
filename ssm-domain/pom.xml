@@ -13,6 +13,7 @@
     <packaging>pom</packaging>
     <modules>
         <module>ssm-domain-core</module>
+        <module>ssm-application-service</module>
     </modules>
 
 
