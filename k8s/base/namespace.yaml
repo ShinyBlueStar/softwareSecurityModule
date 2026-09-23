@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ssm
+  labels:
+    app.kubernetes.io/name: ssm-service
+    # Triggers automatic Istio sidecar injection for every pod in this namespace —
+    # required for the mTLS enforcement in istio-mtls.yaml to take effect.
+    istio-injection: enabled

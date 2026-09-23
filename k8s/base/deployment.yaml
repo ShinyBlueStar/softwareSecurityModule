@@ -1,0 +1,132 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ssm-service
+  namespace: ssm
+  labels:
+    app: ssm-service
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app: ssm-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: ssm-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8009"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1000
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: ssm-service
+          # Replace with your real registry/tag — set by CI on each build.
+          image: registry.example.com/ssm-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: https
+              containerPort: 8009
+          envFrom:
+            - configMapRef:
+                name: ssm-service-config
+            - secretRef:
+                name: ssm-service-secrets
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8009
+              scheme: HTTPS
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8009
+              scheme: HTTPS
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8009
+              scheme: HTTPS
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ssm-service-svc
+  namespace: ssm
+  labels:
+    app: ssm-service
+spec:
+  selector:
+    app: ssm-service
+  ports:
+    - name: https
+      port: 8009
+      targetPort: 8009
+  type: ClusterIP
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ssm-service-pdb
+  namespace: ssm
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: ssm-service
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ssm-service-hpa
+  namespace: ssm
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ssm-service
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80

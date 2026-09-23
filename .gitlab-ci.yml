@@ -1,0 +1,118 @@
+stages:
+  - dependencies
+  - build
+  - dockerize
+  - deploy
+
+variables:
+  GIT_STRATEGY: clone
+  NEXUS_REPO_PUBLIC: "http://localhost:8081/repository/maven-public"
+  DOCKER_IMAGE: "registry.bmicc.ir/library/ssmservice:latest"
+  CONTAINER_NAME: "ssmservice"
+  PORT: "0.0.0.0:8009"
+  NETWORK: "backend"
+
+dependencies-check:
+  stage: dependencies
+  image: hub.bmicc.ir/library/maven:3.9.6-eclipse-temurin-21
+  tags:
+    - ssm-runner
+  rules:
+  - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "stage"'
+    when: always
+  - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "stage"'
+    when: always
+  - when: never
+  script:
+    - echo "🔹 CI_PROJECT_DIR = $CI_PROJECT_DIR"
+    - echo "🔹 PWD = $(pwd)"
+    - echo "👤 NEXUS_USERNAME = $NEXUS_USERNAME"
+    - echo "🔑 NEXUS_PASSWORD length = $(echo -n $NEXUS_PASSWORD | wc -c) characters"
+    - mkdir -p ~/.m2
+    - |
+      cat > ~/.m2/settings.xml <<EOF
+      <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+                xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
+        <servers>
+          <server>
+            <id>private-nexus</id>
+            <username>${NEXUS_USERNAME}</username>
+            <password>${NEXUS_PASSWORD}</password>
+          </server>
+        </servers>
+        <mirrors>
+          <mirror>
+            <id>internal_nexus</id>
+            <mirrorOf>*</mirrorOf>
+            <url>https://repo.bmicc.ir/repository/maven-public/</url>
+          </mirror>
+        </mirrors>
+      </settings>
+      EOF
+    - |
+      ROOT_DIR="$CI_PROJECT_DIR"
+      COMMON_DIR="$ROOT_DIR/../common"
+      if [ ! -d "$COMMON_DIR" ]; then COMMON_DIR="$ROOT_DIR/../../common"; fi
+      CARD_DIR="$ROOT_DIR"
+      echo "📂 Root: $ROOT_DIR | Common: $COMMON_DIR | Card: $SSM_DIR"
+build:
+  stage: build
+  image: hub.bmicc.ir/library/maven:3.9.6-eclipse-temurin-21
+  tags:
+    - ssm-runner
+  rules:
+  - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "stage"'
+    when: always
+  - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "stage"'
+    when: always
+  - when: never
+  script:
+    - echo "🚀 Building project..."
+    - mvn clean package -DskipTests -U
+  artifacts:
+    paths:
+      - target/*.jar
+
+dockerize:
+  stage: dockerize
+  image: docker:stable
+  services:
+    - docker:dind
+  tags:
+    - ssm-runner
+  rules:
+  - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "stage"'
+    when: always
+  - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "stage"'
+    when: always
+  - when: never
+
+  script:
+    - echo "🚀 Dockerizing..."
+    - docker login registry.bmicc.ir -u $REGISTRY_USERNAME -p $REGISTRY_PASSWORD
+    - docker build -f ssm-container/Dockerfile --build-arg NEXUS_USERNAME=$NEXUS_USERNAME --build-arg NEXUS_PASSWORD=$NEXUS_PASSWORD -t $DOCKER_IMAGE .
+    - docker push $DOCKER_IMAGE
+  dependencies:
+    - build
+
+deploy:
+  stage: deploy
+  image: docker:stable
+  services:
+    - docker:dind
+  tags:
+    - ssm-runner
+  rules:
+  - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "stage"'
+    when: always
+  - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "stage"'
+    when: always
+  - when: never
+  script:
+    - echo "🚀 Deploying container on $PORT"
+    - docker login registry.bmicc.ir -u $REGISTRY_USERNAME -p $REGISTRY_PASSWORD
+    - docker pull $DOCKER_IMAGE
+    - docker stop $CONTAINER_NAME || true
+    - docker rm $CONTAINER_NAME || true
+    - docker run -d --name $CONTAINER_NAME -p $PORT:8009 --network $NETWORK $DOCKER_IMAGE

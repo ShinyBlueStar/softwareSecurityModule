@@ -1,0 +1,54 @@
+# Enforces mutual TLS (mTLS) for traffic in/out of the ssm namespace via the Istio
+# service mesh, instead of doing certificate handling in application code. Both sides
+# of a connection present a workload certificate issued by Istio's CA (istiod) and
+# rotated automatically — application code keeps talking plain HTTP to localhost;
+# the sidecar proxy (injected via the istio-injection: enabled label on the namespace)
+# transparently upgrades it to mTLS on the wire.
+#
+# Requires Istio to be installed on the cluster and the vault/security-service
+# namespace to also be mesh-enrolled (sidecar-injected) for end-to-end mTLS — that
+# service lives in a separate repository and is out of scope here. Until it joins the
+# mesh, PERMISSIVE would be the safer interim PeerAuthentication mode; this file uses
+# STRICT on the assumption both sides are enrolled together.
+
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: ssm-service-mtls
+  namespace: ssm
+spec:
+  mtls:
+    mode: STRICT
+---
+# Tells Istio to originate mTLS (present the SSM workload certificate) for every
+# outbound call this namespace makes to the Vault/Security service.
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: vault-service-mtls
+  namespace: ssm
+spec:
+  host: vault-service-svc.vault.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+---
+# Defense in depth beyond "any mesh member can call SSM": only requests carrying a
+# workload identity the mesh itself vouches for (i.e. mTLS-authenticated, matching
+# PeerAuthentication STRICT above) are allowed through. Tighten `source.principals`
+# once the calling services' exact service-account identities are known, to restrict
+# which workloads specifically may call ssm-service rather than "any mesh member".
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: ssm-service-require-mtls
+  namespace: ssm
+spec:
+  selector:
+    matchLabels:
+      app: ssm-service
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals: ["*"]

@@ -1,0 +1,15 @@
+.git
+.gitignore
+.gitattributes
+.gitlab-ci.yml
+.idea
+*.iml
+.m2
+target
+**/target
+data
+*.log
+.DS_Store
+README.md
+k8s
+docs

@@ -1,0 +1,111 @@
+name: ssm
+
+services:
+  oracle:
+    image: gvenzl/oracle-free:23-slim
+    container_name: ssm-oracle
+    environment:
+      ORACLE_PASSWORD: ${ORACLE_PASSWORD:-oracle_password}
+      APP_USER: ${SSM_DATASOURCE_USERNAME:-ssm}
+      APP_USER_PASSWORD: ${SSM_DATASOURCE_PASSWORD:-ssm_password}
+    ports:
+      - "1521:1521"
+    volumes:
+      - oracle-data:/opt/oracle/oradata
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 15s
+      timeout: 10s
+      retries: 15
+      start_period: 60s
+
+  redis:
+    image: redis:7-alpine
+    container_name: ssm-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    container_name: ssm-elasticsearch
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.15.0
+    container_name: ssm-kibana
+    environment:
+      ELASTICSEARCH_HOSTS: '["http://elasticsearch:9200"]'
+    ports:
+      - "5601:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.108.0
+    container_name: ssm-otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    environment:
+      DEPLOYMENT_ENV: local
+    volumes:
+      - ./observability/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
+  ssm-service:
+    build:
+      context: .
+      dockerfile: ssm-container/Dockerfile
+    container_name: ssm-service
+    ports:
+      - "8009:8009"
+    environment:
+      SPRING_PROFILES_ACTIVE: development
+      SERVER_SSL_ENABLED: "false"
+      SSM_DATASOURCE_URL: "jdbc:oracle:thin:@//oracle:1521/FREEPDB1"
+      SSM_DATASOURCE_USERNAME: ${SSM_DATASOURCE_USERNAME:-ssm}
+      SSM_DATASOURCE_PASSWORD: ${SSM_DATASOURCE_PASSWORD:-ssm_password}
+      SSM_REDIS_HOST: redis
+      SSM_REDIS_PORT: 6379
+      EUREKA_CLIENT_ENABLED: "false"
+      VAULT_BASE_URL: ${VAULT_BASE_URL:-http://host.docker.internal:8014}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: http://otel-collector:4318/v1/logs
+      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://otel-collector:4318/v1/metrics
+    depends_on:
+      oracle:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+
+volumes:
+  oracle-data:
+  redis-data:
+  es-data:
