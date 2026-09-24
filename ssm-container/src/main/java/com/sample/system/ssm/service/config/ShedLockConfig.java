@@ -1,0 +1,38 @@
+package com.sample.system.ssm.service.config;
+
+import net.javacrumbs.shedlock.core.LockProvider;
+import net.javacrumbs.shedlock.provider.jdbctemplate.JdbcTemplateLockProvider;
+import net.javacrumbs.shedlock.spring.annotation.EnableSchedulerLock;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.jdbc.core.JdbcTemplate;
+
+import javax.sql.DataSource;
+
+/**
+ * ShedLock configuration for distributed job locking.
+ * Ensures only one instance runs a scheduled job in a cluster.
+ * <p>
+ * Requires table SHEDLOCK in the database. Example DDL (Oracle):
+ * <pre>
+ * CREATE TABLE shedlock (
+ *   name VARCHAR(64) NOT NULL,
+ *   lock_until TIMESTAMP NOT NULL,
+ *   locked_at TIMESTAMP NOT NULL,
+ *   locked_by VARCHAR(255) NOT NULL,
+ *   PRIMARY KEY (name)
+ * );
+ * </pre>
+ */
+@Configuration
+@EnableSchedulerLock(defaultLockAtMostFor = "PT2M")
+public class ShedLockConfig {
+
+    @Bean
+    public LockProvider lockProvider(DataSource dataSource) {
+        return new JdbcTemplateLockProvider(JdbcTemplateLockProvider.Configuration.builder()
+                .withJdbcTemplate(new JdbcTemplate(dataSource))
+                .usingDbTime()
+                .build());
+    }
+}

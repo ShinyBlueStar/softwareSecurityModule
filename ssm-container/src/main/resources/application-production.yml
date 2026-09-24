@@ -1,0 +1,76 @@
+server:
+  port: 8009
+  ssl:
+    enabled: true
+    key-store: classpath:keystore.jks
+    key-store-type: JKS
+    key-store-password: ${SSM_KEYSTORE_PASSWORD:changeit}
+    key-password: ${SSM_KEY_PASSWORD:changeit}
+
+spring:
+  application:
+    name: ssm-service
+  datasource:
+    url: ${SSM_DATASOURCE_URL:jdbc:oracle:thin:@//localhost:1521/ssm00srv}
+    username: ${SSM_DATASOURCE_USERNAME:ssm}
+    password: ${SSM_DATASOURCE_PASSWORD:}
+    driver-class-name: oracle.jdbc.OracleDriver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        envers:
+          audit_table_suffix: _AUD
+          store_data_at_delete: true
+          revision_field_name: rev
+          revision_type_field_name: revtype
+        dialect: org.hibernate.dialect.OracleDialect
+  flyway:
+    enabled: false
+    clean-disabled: false
+    clean-on-validation-error: true
+    validate-on-migrate: false
+    baseline-on-migrate: true
+    baseline-version: 1
+    schemas: SSM
+    locations: classpath:db/migration
+    out-of-order: false
+    group: true
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_DEFAULT_ZONE:http://localhost:8003/eureka}
+    register-with-eureka: true
+    fetch-registry: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+    info:
+      enabled: true
+  info:
+    app:
+      name: Ssm Service
+      version: 1.0.0
+      description: This is ssm service API
+file:
+  storage:
+    path: uploads/
+vault:
+  timeout-seconds: 5
+  base:
+    url: ${VAULT_BASE_URL:http://localhost:8014}
+springdoc:
+   swagger-ui:
+     path: /swagger-ui.html
+     config-url: /v3/api-docs/swagger-config
+     url: /v3/api-docs
+     operationsSorter: method
+     tagsSorter: alpha
+   api-docs:
+     path: /v3/api-docs
